@@ -8,10 +8,10 @@
   <img src="https://img.shields.io/badge/Status-Verified%20%26%20Operational-success?style=for-the-badge&logo=checkmarx&logoColor=white" alt="Status">
 </p>
 
-A hands-on detection engineering and security operations lab demonstrating the deployment, architecture, and integration of **Suricata High-Performance Network IDS** with the **Wazuh SIEM Platform**. Network packets are captured, decoded, and matched against 53,500+ threat signatures in near-real time, normalized into structured EVE JSON telemetry, and correlated inside Wazuh for centralized SOC threat hunting and investigation from the security analyst workstation.
+A hands-on detection engineering and security operations lab demonstrating the deployment, architecture, and integration of **Suricata High-Performance Network IDS** with the **Wazuh SIEM Platform**. Network packets are captured, decoded, and matched against 53,500+ threat signatures in near-real time, normalized into structured EVE JSON telemetry, and correlated inside Wazuh for centralized SOC threat hunting and investigation.
 
 > [!IMPORTANT]
-> **Co-Located Server Architecture:** Suricata runs natively on the Wazuh Server. The Wazuh Manager's built-in **Logcollector** daemon monitors Suricata's `eve.json` output in real time using the native JSON log format. The security analyst accesses the **Wazuh Dashboard** remotely from the **Windows 11 Analyst Workstation** via browser over HTTPS.
+> **Co-Located Single-Server Architecture:** Suricata runs natively on the Wazuh Server. The Wazuh Manager's built-in **Logcollector** daemon monitors Suricata's `eve.json` output in real time using the native JSON log format. A separate, redundant `wazuh-agent` daemon is **not** required on the central server.
 
 ---
 
@@ -20,7 +20,7 @@ A hands-on detection engineering and security operations lab demonstrating the d
 - [1. Executive Summary & Capabilities](#1-executive-summary--capabilities)
 - [2. System Architecture & Topology](#2-system-architecture--topology)
   - [2.1 High-Level Architecture Diagram](#21-high-level-architecture-diagram)
-  - [2.2 Detailed Event Pipeline](#22-detailed-event-pipeline)
+  - [2.2 Unified Server Event Pipeline](#22-unified-server-event-pipeline)
   - [2.3 Component Responsibility Matrix](#23-component-responsibility-matrix)
 - [3. Monitored Endpoint Fleet](#3-monitored-endpoint-fleet)
 - [4. Core Integration & Detection Flow](#4-core-integration--detection-flow)
@@ -36,12 +36,11 @@ A hands-on detection engineering and security operations lab demonstrating the d
 
 Modern Security Operations Centers (SOCs) require comprehensive visibility across both endpoint telemetry (EDR/HIDS) and network telemetry (NIDS). This lab establishes a centralized detection and correlation pipeline delivering:
 
-- **High-Speed Network Sniffing:** Multi-threaded packet capture and stream reassembly powered by Suricata's `AF_PACKET` engine on `ens33`.
+- **High-Speed Network Sniffing:** Multi-threaded packet capture and stream reassembly powered by Suricata's `AF_PACKET` engine.
 - **Threat Intelligence Feeds:** Integration with **Emerging Threats Open (ET Open)** and **OISF TrafficID** feeds, compiling over 53,500 active detection signatures.
-- **Deep Protocol Decoding:** Layered inspection decoding Ethernet, IP, TCP, UDP, and application protocols (HTTP, TLS, DNS).
 - **Structured Telemetry Normalization:** Outputting enriched flow, DNS, TLS, HTTP, anomaly, and alert data into Suricata's Extensible Event Format (`eve.json`).
 - **SIEM Correlation & Rule Evaluation:** Ingestion by the Wazuh Logcollector and automated parsing through Wazuh's JSON decoder and Suricata ruleset (`0475-suricata_rules.xml`).
-- **Analyst Threat Hunting on Windows 11:** Secure web-based exploration via the Wazuh Dashboard accessed from the Windows 11 analyst workstation.
+- **Enterprise Alert Pipeline:** Seamless delivery via Filebeat into the Wazuh Indexer and interactive visualization in the Wazuh Dashboard.
 
 ---
 
@@ -49,80 +48,64 @@ Modern Security Operations Centers (SOCs) require comprehensive visibility acros
 
 ### 2.1 High-Level Architecture Diagram
 
-The lab network consists of monitored enterprise endpoints alongside the central Ubuntu security server hosting Suricata and the Wazuh SIEM stack:
+The lab network consists of monitored enterprise endpoints alongside the central Ubuntu security server hosting Suricata and the full Wazuh SIEM stack:
 
 <p align="center">
   <img src="assets/suricata-wazuh-architecture.jpg" alt="Suricata + Wazuh SOC Lab Architecture" width="900">
 </p>
 
-### 2.2 Detailed Event Pipeline
+### 2.2 Unified Server Event Pipeline
 
-The end-to-end data pipeline moves telemetry from raw packet capture through protocol decoding, signature evaluation, SIEM ingestion, indexing, and analyst investigation on Windows 11:
+All core processing, analysis, indexing, and visualization services run unified on the central server:
 
 ```mermaid
 flowchart TB
-    subgraph MonitoredNetwork["Monitored Endpoints & Attacker"]
-        W10["Windows 10 Pro<br/>(Monitored Endpoint - Agent 001)"]
-        KALI["Kali Linux<br/>(Attack Emulation & Security Testing - Agent 002)"]
+    subgraph MonitoredNetwork["Monitored Endpoints"]
+        W10["Windows 10 (Agent 001)"]
+        KALI["Kali Linux (Agent 002)"]
+        W11["Windows 11 (Agent 003)"]
     end
 
-    subgraph UbuntuServer["Ubuntu Server (SIEM & NIDS Core Architecture)"]
+    subgraph UbuntuServer["Ubuntu Server (All-in-One SIEM & NIDS Architecture)"]
         NIC["Host Network Interface (ens33)"]
 
         subgraph SuricataPipeline["Suricata Engine (Network Detection & Analysis)"]
-            PKT["Raw Network Packets"]
-            DEC["Suricata Packet Decoder<br/>(Decodes Ethernet, IP, TCP, UDP and application-layer protocols)"]
-            DET["Suricata Detection Engine<br/>(Evaluates network traffic against Suricata signatures)"]
-            EVE["EVE JSON Generation<br/>(Converts detected network events into structured JSON format)"]
-
-            PKT --> DEC
-            DEC --> DET
-            DET --> EVE
+            PKT["Network Packets (AF_PACKET)"] --> DEC["Packet Decoder & Stream Parser"]
+            DEC --> DET["Detection Engine (53k+ Signatures)"]
+            DET --> EVE["EVE JSON Output (/var/log/suricata/eve.json)"]
         end
 
-        subgraph WazuhPipeline["Wazuh Manager (Log Analysis & Monitoring)"]
-            LCOL["Wazuh Local Logcollector<br/>(Reads eve.json in real time)"]
-            JDEC["Wazuh JSON Decoder<br/>(Extracts and normalizes event fields)"]
-            RENG["Wazuh Rules Engine<br/>(Evaluates events against 0475-suricata_rules.xml)"]
-            ALERTS["Security Alert Generation<br/>(Outputs qualified alerts to alerts.json)"]
-
-            LCOL --> JDEC
-            JDEC --> RENG
-            RENG --> ALERTS
+        subgraph WazuhPipeline["Wazuh Pipeline (Log Analysis & Monitoring)"]
+            LCOL["Logcollector (json format)"] --> JDEC["JSON Decoder"]
+            JDEC --> RENG["Rules Engine (0475-suricata_rules.xml)"]
+            RENG --> ALERTS["Security Alerts (alerts.json)"]
         end
 
-        FB["Filebeat Log Shipper<br/>(Forwards alerts over TLS)"]
-        IDX["Wazuh Indexer<br/>(Stores and indexes documents on port 9200)"]
-        DASH_SRV["Wazuh Dashboard Service<br/>(Web Application Backend - Port 443)"]
+        FB["Filebeat (Forward Alerts)"]
+        IDX["Wazuh Indexer (Store & Index)"]
+        DASH["Wazuh Dashboard (Threat Hunting & Visualization)"]
 
         NIC --> PKT
         EVE --> LCOL
         ALERTS --> FB
         FB --> IDX
-        IDX --> DASH_SRV
-    end
-
-    subgraph Win11Host["Windows 11 (SOC Analyst Workstation - Agent 003)"]
-        DASH_UI["Wazuh Dashboard Web Interface<br/>(SOC Threat Hunting, Incident Investigation & Visual Dashboards)"]
+        IDX --> DASH
     end
 
     MonitoredNetwork -. Network Traffic & Encrypted Agent Events (Port 1514) .-> NIC
-    DASH_SRV ==>|"HTTPS Web Session (Analyst UI)"| DASH_UI
 ```
 
 ### 2.3 Component Responsibility Matrix
 
-| Component | Layer / Host | Role & Responsibility in Pipeline |
+| Component | Layer | Role & Responsibility in Pipeline |
 |---|---|---|
-| **Raw Packets & Suricata Decoder** | Network / Ubuntu Server | Captures raw frames via `AF_PACKET` on `ens33` and decodes Ethernet, IP, TCP, UDP, and application-layer protocols. |
-| **Suricata Detection Engine** | Detection / Ubuntu Server | Evaluates network traffic against 53,500+ active Suricata signatures (ET Open & OISF TrafficID). |
-| **EVE JSON Generation** | Serialization / Ubuntu Server | Converts detected network events into structured JSON format written to `/var/log/suricata/eve.json`. |
-| **Wazuh Local Logcollector** | Ingestion / Ubuntu Server | Real-time file collector that continuously reads `eve.json` and submits records into the Wazuh analysis queue. |
-| **Wazuh JSON Decoder** | Normalization / Ubuntu Server | Extracts nested JSON key-value pairs (`data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.proto`) into searchable fields. |
-| **Wazuh Rules Engine** | Correlation / Ubuntu Server | Evaluates parsed events against `0475-suricata_rules.xml`, assigns alert levels (3–12), and outputs to `alerts.json`. |
-| **Filebeat Log Shipper** | Transport / Ubuntu Server | Ships formatted alert documents securely over TLS to the Wazuh Indexer. |
-| **Wazuh Indexer** | Search & Storage / Ubuntu Server | High-performance distributed OpenSearch datastore indexing alerts into `wazuh-alerts-*`. |
-| **Wazuh Dashboard (Analyst UI)** | Presentation / Windows 11 | Accessed via browser from the Windows 11 workstation for interactive threat hunting, query filtering, and incident investigation. |
+| **Suricata Engine** | Network IDS | Captures raw frames via `AF_PACKET`, reassembles streams, matches signatures, and writes JSON events to `/var/log/suricata/eve.json`. |
+| **Wazuh Logcollector** | Telemetry Ingestion | Built-in manager daemon that continuously monitors `eve.json` and forwards records into the analysis queue. |
+| **Wazuh JSON Decoder** | Data Normalization | Extracts nested JSON key-value pairs (`data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.proto`) into searchable fields. |
+| **Wazuh Rules Engine** | SIEM Correlation | Evaluates parsed events against `0475-suricata_rules.xml`, assigns alert levels (3–12), and outputs to `/var/ossec/logs/alerts/alerts.json`. |
+| **Filebeat** | Transport & Shipping | Ships formatted alert documents over TLS to the Wazuh Indexer. |
+| **Wazuh Indexer** | Search & Storage | Distributed OpenSearch-based indexer storing documents in `wazuh-alerts-*` indices. |
+| **Wazuh Dashboard** | SOC Visual Interface | Provides real-time event exploration, KQL/Lucene querying, and threat hunting visualization. |
 
 ---
 
@@ -130,10 +113,10 @@ flowchart TB
 
 | System Name | Operating System | Wazuh Agent ID | Communication Channel | Role |
 |---|---|:---:|---|---|
-| **`wazuh-server`** | Ubuntu Server 22.04/24.04 | `000` | Local System / Logcollector | Central SIEM & NIDS Server |
-| **`WIN11-SOC-HOST`** | Windows 11 Enterprise | `003` | TCP 1514 (Agent) & HTTPS (Dashboard Web UI) | SOC Analyst Workstation & Monitored Host |
-| **`WIN10-SOC-LAB`** | Windows 10 Pro | `001` | TCP 1514 (AES Encrypted) | Monitored Endpoint |
-| **`KALI-SOC-LAB`** | Kali Linux Rolling | `002` | TCP 1514 (AES Encrypted) | Attack Emulation & Security Testing |
+| **`wazuh-server`** | Ubuntu Server 22.04/24.04 | `000` | Local System / Logcollector | Central SIEM & NIDS Host |
+| **`WIN11-SOC-HOST`** | Windows 11 Enterprise | `003` | TCP 1514 (AES Encrypted) | Monitored Host / Active |
+| **`WIN10-SOC-LAB`** | Windows 10 Pro | `001` | TCP 1514 (AES Encrypted) | Monitored Host |
+| **`KALI-SOC-LAB`** | Kali Linux Rolling | `002` | TCP 1514 (AES Encrypted) | Security Testing & Attack Emulation |
 
 ---
 
@@ -145,20 +128,20 @@ The pipeline operates through a streamlined four-stage data cycle:
 [ Network Traffic ]
         │
         ▼
-(1) Suricata NIDS ────► Packet Decoder ──► Detection Engine (53k+ Signatures)
+(1) Suricata NIDS ────► AF_PACKET Sniffing ──► 53k+ Threat Signatures
         │
         ▼
-(2) EVE JSON ─────────► EVE JSON Generation ──► /var/log/suricata/eve.json
+(2) EVE JSON ─────────► /var/log/suricata/eve.json
         │
         ▼
 (3) Wazuh Manager ────► Logcollector ──► JSON Decoder ──► Rules Engine
         │
         ▼
-(4) Storage & UI ─────► Filebeat ──► Wazuh Indexer ──► Windows 11 Analyst Dashboard
+(4) Visualization ────► Filebeat ──► Wazuh Indexer ──► Wazuh Dashboard
 ```
 
-1. **Traffic Ingestion & Packet Decoding:** Suricata binds to `ens33` using high-speed `AF_PACKET` capture with hardware ring buffers (`tpacket-v3: yes`), decoding Ethernet, IP, TCP/UDP, and application layers.
-2. **Signature Evaluation & EVE JSON Generation:** Ingress and egress traffic is compared against Emerging Threats and OISF signatures. Matching events are serialized with comprehensive metadata (flow IDs, payload anomalies, protocol decoders) into `eve.json`.
+1. **Traffic Ingestion & Deep Packet Inspection:** Suricata binds directly to the server's network interface (`ens33`) using high-speed `AF_PACKET` capture with hardware frame ring buffers (`tpacket-v3: yes`).
+2. **Signature Evaluation & Event Enrichment:** Ingress and egress traffic is compared against Emerging Threats and OISF signatures. Matching events are serialized with comprehensive metadata (flow IDs, payload anomalies, protocol decoders) into `eve.json`.
 3. **Local Manager Collection:** The Wazuh Manager ingests the JSON log stream via its native `<localfile>` configuration:
    ```xml
    <localfile>
@@ -166,7 +149,7 @@ The pipeline operates through a streamlined four-stage data cycle:
      <log_format>json</log_format>
    </localfile>
    ```
-4. **Correlation, Indexing & Threat Hunting:** Wazuh correlates network anomalies with host events, generates standardized security alert objects, and Filebeat transmits them into the Wazuh Indexer. Security analysts investigate alerts directly from the Windows 11 workstation.
+4. **SIEM Correlation & Indexing:** Wazuh correlates network anomalies with host events, generates standardized security alert objects, and Filebeat transmits them into the Wazuh Indexer for immediate analyst retrieval.
 
 ---
 
@@ -174,7 +157,7 @@ The pipeline operates through a streamlined four-stage data cycle:
 
 ### 5.1 Threat Hunting Queries
 
-Security analysts can query the `wazuh-alerts-*` data view in the Wazuh Dashboard from the Windows 11 workstation using Kibana Query Language (KQL) or Lucene syntax:
+Security analysts can query the `wazuh-alerts-*` data view in the Wazuh Dashboard using Kibana Query Language (KQL) or Lucene syntax:
 
 | Investigation Objective | Query Filter |
 |---|---|
@@ -210,7 +193,7 @@ When Suricata alerts are indexed, Wazuh normalizes the nested JSON keys into sta
 
 ## 6. Detection Engineering & Operational Boundaries
 
-1. **Virtual Switch Visibility:** In virtualized environments (e.g., VMware Workstation, ESXi, Proxmox), a standard virtual NIC only receives broadcast traffic and unicast traffic addressed to or from that host. To inspect East-West traffic between other virtual machines (e.g., Kali Linux attacking Windows 10), configure a virtual switch with promiscuous mode or set up a dedicated SPAN/port-mirroring session.
+1. **Virtual Switch Visibility:** In virtualized environments (e.g., VMware Workstation, ESXi, Proxmox), a standard virtual NIC only receives broadcast traffic and unicast traffic addressed to or from that host. To inspect East-West traffic between other virtual machines (e.g., Kali Linux attacking Windows 11), configure a virtual switch with promiscuous mode or set up a dedicated SPAN/port-mirroring session.
 2. **Passive IDS vs. Inline IPS:** In this configuration, Suricata operates as a passive **Intrusion Detection System (IDS)** using `AF_PACKET`. Alerts marked with `action: allowed` indicate that traffic matched a signature and was recorded, but was **not dropped**. For active packet blocking (IPS), Suricata must be configured inline with `NFQUEUE` or bridged interfaces.
 3. **Telemetry Volume & Storage Hygiene:** Network monitoring produces substantial log volume. Maintain log rotation policies (`/etc/logrotate.d/suricata`) to preserve disk health, and enable full raw archive forwarding (`<logall_json>yes</logall_json>`) only when storage capacity is planned accordingly.
 
