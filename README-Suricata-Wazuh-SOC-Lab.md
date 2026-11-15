@@ -8,10 +8,7 @@
   <img src="https://img.shields.io/badge/Status-Verified%20%26%20Operational-success?style=for-the-badge&logo=checkmarx&logoColor=white" alt="Status">
 </p>
 
-A hands-on detection engineering and security operations lab demonstrating the deployment, architecture, and integration of **Suricata High-Performance Network IDS** with the **Wazuh SIEM Platform**. Network packets are captured, decoded, and matched against 53,500+ threat signatures in near-real time, normalized into structured EVE JSON telemetry, and correlated inside Wazuh for centralized SOC threat hunting and investigation.
-
-> [!IMPORTANT]
-> **Co-Located Single-Server Architecture:** Suricata runs natively on the Wazuh Server. The Wazuh Manager's built-in **Logcollector** daemon monitors Suricata's `eve.json` output in real time using the native JSON log format. A separate, redundant `wazuh-agent` daemon is **not** required on the central server.
+A practical SOC detection engineering lab integrating **Suricata Network IDS** with the **Wazuh SIEM Platform**. The system captures live network traffic via high-speed `AF_PACKET`, evaluates packets against 53,500+ threat intelligence signatures (Emerging Threats Open & OISF TrafficID), and streams structured EVE JSON telemetry directly into Wazuh for automated log decoding, security rule correlation, and centralized threat hunting in the Wazuh Dashboard.
 
 ---
 
