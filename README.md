@@ -92,9 +92,25 @@ flowchart TB
 
 ### 2.3 Component Responsibility Matrix
 
+```
+Raw Network Packets
+      ↓
+Suricata Packet Decoder
+(Decodes Ethernet, IP, TCP, UDP and application-layer protocols)
+      ↓
+Suricata Detection Engine
+(Evaluates network traffic against Suricata signatures)
+      ↓
+EVE JSON Generation
+(Converts detected network events into structured JSON format)
+```
+
 | Component | Layer | Role & Responsibility in Pipeline |
 |---|---|---|
-| **Suricata Engine** | Network IDS | Captures raw frames via `AF_PACKET` on `ens33`, reassembles streams, matches signatures, and writes JSON events to `/var/log/suricata/eve.json`. |
+| **Raw Network Packets** | Ingress Traffic | Captured from network interface `ens33` via high-performance `AF_PACKET` socket ring buffers. |
+| **Suricata Packet Decoder** | Protocol Decoding | Decodes Ethernet, IP, TCP, UDP, and application-layer protocols (HTTP, TLS, DNS). |
+| **Suricata Detection Engine** | Threat Detection | Evaluates network traffic against 53,500+ active Suricata signatures (ET Open & OISF TrafficID). |
+| **EVE JSON Generation** | Serialization | Converts detected network events into structured JSON format written to `/var/log/suricata/eve.json`. |
 | **Wazuh Logcollector** | Telemetry Ingestion | Built-in manager daemon that continuously monitors `eve.json` and forwards records into the analysis queue. |
 | **Wazuh JSON Decoder** | Data Normalization | Extracts nested JSON key-value pairs (`data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.proto`) into searchable fields. |
 | **Wazuh Rules Engine** | SIEM Correlation | Evaluates parsed events against `0475-suricata_rules.xml`, assigns alert levels (3–12), and outputs to `/var/ossec/logs/alerts/alerts.json`. |
