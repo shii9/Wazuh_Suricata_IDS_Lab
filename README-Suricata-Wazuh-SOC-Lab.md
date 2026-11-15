@@ -92,19 +92,6 @@ flowchart TB
 
 ### 2.3 Component Responsibility Matrix
 
-```
-Raw Network Packets
-      ↓
-Suricata Packet Decoder
-(Decodes Ethernet, IP, TCP, UDP and application-layer protocols)
-      ↓
-Suricata Detection Engine
-(Evaluates network traffic against Suricata signatures)
-      ↓
-EVE JSON Generation
-(Converts detected network events into structured JSON format)
-```
-
 | Component | Layer | Role & Responsibility in Pipeline |
 |---|---|---|
 | **Raw Network Packets** | Ingress Traffic | Captured from network interface `ens33` via high-performance `AF_PACKET` socket ring buffers. |
