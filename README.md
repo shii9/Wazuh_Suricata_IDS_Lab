@@ -11,7 +11,7 @@
 A hands-on detection engineering lab demonstrating the deployment, configuration, and end-to-end integration of **Suricata High-Performance Network IDS** on an existing **Ubuntu Wazuh All-in-One Server**. Network packets are captured, decoded, and matched against threat signatures in near-real time, before being normalized into EVE JSON and parsed into the Wazuh SIEM for automated threat hunting, correlation, and SOC dashboard investigation.
 
 > [!IMPORTANT]
-> **Deployment Model (Co-located Architecture):** Suricata runs directly on the Wazuh Manager host (`saad`). The Wazuh Manager's built-in, local **Logcollector** daemon natively monitors Suricata's `eve.json` output via a `<localfile>` configuration. A separate, redundant `wazuh-agent` daemon is **not** required on the Manager server.
+> **Deployment Model (Co-located Architecture):** Suricata runs directly on the Wazuh Manager host (`wazuh-server`). The Wazuh Manager's built-in, local **Logcollector** daemon natively monitors Suricata's `eve.json` output via a `<localfile>` configuration. A separate, redundant `wazuh-agent` daemon is **not** required on the Manager server.
 
 ---
 
@@ -72,7 +72,7 @@ Modern Security Operations Centers (SOCs) depend on multi-layered visibility acr
 
 ### 2.1 High-Level Architecture Diagram
 
-The lab network consists of monitored enterprise endpoints alongside the central Ubuntu security server hosting Suricata and the Wazuh stack:
+The lab network consists of monitored enterprise endpoints alongside the central Ubuntu security server hosting Suricata and the full Wazuh SIEM stack:
 
 <p align="center">
   <img src="assets/suricata-wazuh-architecture.jpg" alt="Suricata + Wazuh SOC Lab Architecture" width="900">
@@ -80,40 +80,43 @@ The lab network consists of monitored enterprise endpoints alongside the central
 
 ### 2.2 Detailed Event Pipeline
 
-The end-to-end data pipeline moves telemetry from raw packet capture to interactive SOC dashboard queries:
+The end-to-end data pipeline moves telemetry from raw packet capture through analysis, storage, and visualization—all running unified on the Ubuntu Server:
 
 ```mermaid
-flowchart TD
-    subgraph MonitoredNetwork["1. Network Environment"]
+flowchart TB
+    subgraph MonitoredNetwork["Monitored Endpoints"]
         W10["Windows 10 (Agent 001)"]
-        W11["Windows 11 (Agent 003)"]
         KALI["Kali Linux (Agent 002)"]
+        W11["Windows 11 (Agent 003)"]
+    end
+
+    subgraph UbuntuServer["Ubuntu Server (All-in-One SIEM & NIDS Architecture)"]
         NIC["Host Network Interface (ens33)"]
-        W10 -.-> NIC
-        W11 -.-> NIC
-        KALI -.-> NIC
+
+        subgraph SuricataPipeline["Suricata Engine (Network Detection & Analysis)"]
+            PKT["Network Packets (AF_PACKET)"] --> DEC["Packet Decoder & Stream Parser"]
+            DEC --> DET["Detection Engine (53k+ Signatures)"]
+            DET --> EVE["EVE JSON Output (/var/log/suricata/eve.json)"]
+        end
+
+        subgraph WazuhPipeline["Wazuh Pipeline (Log Analysis & Monitoring)"]
+            LCOL["Logcollector (json format)"] --> JDEC["JSON Decoder"]
+            JDEC --> RENG["Rules Engine (0475-suricata_rules.xml)"]
+            RENG --> ALERTS["Security Alerts (alerts.json)"]
+        end
+
+        FB["Filebeat (Forward Alerts)"]
+        IDX["Wazuh Indexer (Store & Index)"]
+        DASH["Wazuh Dashboard (Threat Hunting & Visualization)"]
+
+        NIC --> PKT
+        EVE --> LCOL
+        ALERTS --> FB
+        FB --> IDX
+        IDX --> DASH
     end
 
-    subgraph SuricataPipeline["2. Suricata IDS Engine (Ubuntu Server)"]
-        PKT["Network Packets (AF_PACKET)"] --> DEC["Packet Decoder & Stream Parser"]
-        DEC --> DET["Detection Engine (53k+ Signatures)"]
-        DET --> EVE["EVE JSON Output (/var/log/suricata/eve.json)"]
-    end
-
-    subgraph WazuhPipeline["3. Wazuh Analysis Pipeline"]
-        EVE --> LCOL["Wazuh Local Logcollector (json format)"]
-        LCOL --> JDEC["Wazuh JSON Decoder"]
-        JDEC --> RENG["Wazuh Rules Engine (0475-suricata_rules.xml)"]
-        RENG --> ALERTS["alerts.json (/var/ossec/logs/alerts/alerts.json)"]
-    end
-
-    subgraph StorageVisualization["4. Indexing & Dashboards"]
-        ALERTS --> FB["Filebeat (Wazuh Module)"]
-        FB --> IDX["Wazuh Indexer (Port 9200)"]
-        IDX --> DASH["Wazuh Dashboard (Threat Hunting)"]
-    end
-
-    NIC --> PKT
+    MonitoredNetwork -. Network Traffic & Encrypted Agent Events (Port 1514) .-> NIC
 ```
 
 ### 2.3 Component Responsibility Matrix
@@ -139,11 +142,11 @@ flowchart TD
 
 | Parameter | Lab Value | Description |
 |---|---|---|
-| **Server Hostname** | `saad` | Ubuntu Server running Wazuh All-in-One & Suricata |
-| **Capture Interface** | `ens33` | Monitored network adapter |
-| **Server IP Address** | `192.168.110.169/24` | Static / DHCP assigned lab IP |
-| **Monitored Subnet (`HOME_NET`)** | `192.168.110.0/24` | Local lab subnet treated as internal |
-| **Default Gateway** | `192.168.110.2` | Virtual switch gateway |
+| **Server Hostname** | `wazuh-server` | Ubuntu Server running Wazuh All-in-One & Suricata |
+| **Capture Interface** | `ens33` | Monitored network adapter (e.g., `ens33` / `eth0`) |
+| **Server IP Address** | `192.168.1.100/24` | Example static / internal IP (`<wazuh-server-ip>`) |
+| **Monitored Subnet (`HOME_NET`)** | `192.168.1.0/24` | Protected internal lab network CIDR |
+| **Default Gateway** | `192.168.1.1` | Local virtual switch gateway |
 | **Suricata Version** | `8.0.8` | High-performance multi-threaded NIDS |
 | **Wazuh Stack Version** | `v4.14.9 (rc2)` | Wazuh Manager, Indexer, Dashboard, Filebeat |
 
@@ -151,7 +154,7 @@ flowchart TD
 
 | System Name | Operating System | Wazuh Agent ID | Communication Channel | Role |
 |---|---|:---:|---|---|
-| **`saad`** | Ubuntu Server 22.04/24.04 | `000` | Local System / Logcollector | Central SIEM & NIDS Host |
+| **`wazuh-server`** | Ubuntu Server 22.04/24.04 | `000` | Local System / Logcollector | Central SIEM & NIDS Host |
 | **`WIN11-SOC-HOST`** | Windows 11 Enterprise | `003` | TCP 1514 (AES Encrypted) | Monitored Host / Active |
 | **`WIN10-SOC-LAB`** | Windows 10 Pro | `001` | TCP 1514 (AES Encrypted) | Monitored Host |
 | **`KALI-SOC-LAB`** | Kali Linux Rolling | `002` | TCP 1514 (AES Encrypted) | Security Testing & Attack Emulation |
@@ -195,19 +198,20 @@ sudo cp /etc/suricata/suricata.yaml /etc/suricata/suricata.yaml.backup
 sudo nano /etc/suricata/suricata.yaml
 ```
 
-Locate the `vars.address-groups` section and define your internal network boundary. Set `HOME_NET` to encompass the lab subnet and define `EXTERNAL_NET` as everything outside `HOME_NET`:
+Locate the `vars.address-groups` section and define your internal network boundary. Set `HOME_NET` to your internal network CIDR and define `EXTERNAL_NET` as everything outside `HOME_NET`:
 
 ```yaml
 vars:
   address-groups:
-    HOME_NET: "[192.168.110.0/24]"
+    # Define your internal protected subnet
+    HOME_NET: "[192.168.1.0/24]"
     EXTERNAL_NET: "!$HOME_NET"
 ```
 
 > [!TIP]
 > If your environment includes multiple VLANs or subnets, include them as a comma-separated list:
 > ```yaml
-> HOME_NET: "[192.168.110.0/24, 10.0.0.0/24, 172.16.0.0/16]"
+> HOME_NET: "[192.168.1.0/24, 10.0.0.0/24, 172.16.0.0/16]"
 > ```
 
 ### 4.3 Configuring High-Speed Capture (`AF_PACKET`)
@@ -468,7 +472,7 @@ By default, Wazuh only indexes events that trigger a security alert. If your SOC
 
 ### 9.1 Accessing the Threat Hunting Interface
 
-1. Navigate to your Wazuh Dashboard: `https://192.168.110.169` (or configured FQDN).
+1. Navigate to your Wazuh Dashboard: `https://<wazuh-server-ip>` (e.g., `https://192.168.1.100` or configured FQDN).
 2. Authenticate using your administrative credentials.
 3. Open the navigation menu and select **Threat Hunting → Events**.
 4. Confirm the active data view is `wazuh-alerts-*`.
@@ -484,7 +488,7 @@ Filter alerts in the dashboard search bar using KQL (Kibana Query Language) or L
 | **Local Host Suricata Alerts** | `agent.id: "000" AND rule.groups: "suricata"` |
 | **Specific Rule ID Match** | `rule.id: 86601` |
 | **High Severity Network Alerts** | `rule.groups: "suricata" AND rule.level >= 7` |
-| **Filter by Source IP** | `data.src_ip: "192.168.110.169"` |
+| **Filter by Source IP** | `data.src_ip: "192.168.1.100"` |
 | **Specific Attack Signatures** | `data.alert.signature: *TLS*` or `data.alert.signature: *GPL*` |
 
 ### 9.3 Decoded Field Reference
@@ -493,7 +497,7 @@ When a Suricata alert is indexed, Wazuh normalizes the nested JSON into search-r
 
 | Field Name | Type | Description |
 |---|---|---|
-| `agent.id` | Keyword | Wazuh agent (`000` corresponds to local Manager `saad`) |
+| `agent.id` | Keyword | Wazuh agent (`000` corresponds to local Manager `wazuh-server`) |
 | `rule.id` | Keyword | Wazuh rule ID (e.g., `86601` for Suricata alert) |
 | `rule.level` | Integer | Wazuh severity rating (typically 3 to 12) |
 | `rule.groups` | Array | Rule classifications (e.g., `["ids", "suricata"]`) |
@@ -513,10 +517,11 @@ When a Suricata alert is indexed, Wazuh normalizes the nested JSON into search-r
 
 ### 10.1 Safe Network Ping & ICMP Visibility
 
-From another host on the `192.168.110.0/24` subnet (e.g., Kali or Windows VM), send ICMP packets to verify packet capture visibility:
+From another host on the internal subnet (e.g., Kali or Windows VM), send ICMP packets to verify packet capture visibility:
 
 ```bash
-ping -c 5 192.168.110.169
+ping -c 5 <wazuh-server-ip>
+# Example: ping -c 5 192.168.1.100
 ```
 
 Check Suricata's `stats.log` to confirm the packet counters incremented.
@@ -640,10 +645,10 @@ During live verification in this lab environment, the integration was validated 
   },
   "agent": {
     "id": "000",
-    "name": "saad"
+    "name": "wazuh-server"
   },
   "manager": {
-    "name": "saad"
+    "name": "wazuh-server"
   },
   "id": "1731720862.391204",
   "data": {
@@ -651,9 +656,9 @@ During live verification in this lab environment, the integration was validated 
     "flow_id": 182749172401827,
     "in_iface": "ens33",
     "event_type": "alert",
-    "src_ip": "192.168.110.169",
+    "src_ip": "192.168.1.100",
     "src_port": 54210,
-    "dest_ip": "192.168.110.2",
+    "dest_ip": "192.168.1.1",
     "dest_port": 443,
     "proto": "TCP",
     "alert": {
@@ -670,7 +675,7 @@ During live verification in this lab environment, the integration was validated 
 ```
 
 ### Analysis of the Recorded Evidence
-- **Agent Attribution (`000` / `saad`):** Confirms the event originated from the local Manager's Logcollector pipeline.
+- **Agent Attribution (`000` / `wazuh-server`):** Confirms the event originated from the local Manager's Logcollector pipeline.
 - **Rule Correlation (`86601`):** Shows Wazuh successfully mapped the EVE record to the built-in Suricata ruleset (`0475-suricata_rules.xml`).
 - **Signature Context (`2230002`):** Suricata's deep protocol inspection engine flagged anomalous TLS protocol structures while maintaining flow state.
 
